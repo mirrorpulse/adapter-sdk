@@ -125,7 +125,14 @@ internal static class PackageConfigurationContractChecks
         Reject(() => AdapterDeploymentContract.ValidateUpdateOffer(installed, update with { AdapterId = "com.example.other" }), "update for another Adapter");
         Reject(() => AdapterDeploymentContract.ValidateUpdateOffer(installed, update with { Version = installed.Version }), "same-version update");
         Reject(() => AdapterDeploymentContract.ValidateUpdateOffer(installed, update with { Version = "1.2.3-preview.3" }), "older preview update");
-        Reject(() => AdapterDeploymentContract.ValidateUpdateOffer(installed, update with { Location = new Uri("file:///package.mpadapter") }), "untrusted local update path");
+        AdapterDeploymentContract.ValidateUpdateOffer(installed, update with { Location = new Uri("file:///C:/Updates/package.mpadapter") });
+        Reject(() => AdapterDeploymentContract.ValidateUpdateOffer(installed, update with { Location = new Uri("file:///package.mpadapter") }), "rootless local update path");
+        Reject(() => AdapterDeploymentContract.ValidateUpdateOffer(installed, update with { Location = new Uri("file://server/share/package.mpadapter") }), "UNC update path");
+        using var available = JsonDocument.Parse(JsonSerializer.Serialize(new AdapterPackageUpdateResult(update)));
+        using var current = JsonDocument.Parse(JsonSerializer.Serialize(new AdapterPackageUpdateResult(null)));
+        if (available.RootElement.GetProperty("offer").GetProperty("version").GetString() != update.Version ||
+            current.RootElement.GetProperty("offer").ValueKind != JsonValueKind.Null)
+            throw new InvalidOperationException("An update check response must include its nullable offer.");
         Console.WriteLine("Callback expiry and field scope, structured health and update-offer checks passed.");
     }
 

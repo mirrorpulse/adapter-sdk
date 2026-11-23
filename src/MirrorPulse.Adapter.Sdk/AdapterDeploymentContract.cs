@@ -19,8 +19,15 @@ public sealed record AdapterHealthIssue(AdapterHealthReason Reason, string? Fiel
 /// <summary>The current issues for one negotiated deployment session. An empty list clears previous issues.</summary>
 public sealed record AdapterHealthReport(IReadOnlyList<AdapterHealthIssue> Issues);
 
-/// <summary>A proposed package download. The Host decides whether to fetch or install it.</summary>
-public sealed record AdapterPackageUpdateOffer(string AdapterId, string Version, Uri Location);
+/// <summary>A proposed package at an HTTPS URL or a local Windows file location.</summary>
+public sealed record AdapterPackageUpdateOffer(
+    [property: JsonPropertyName("adapterId")] string AdapterId,
+    [property: JsonPropertyName("version")] string Version,
+    [property: JsonPropertyName("location")] Uri Location);
+
+/// <summary>The response to a deployment-wide update check. A null offer means the selected version is current.</summary>
+public sealed record AdapterPackageUpdateResult(
+    [property: JsonPropertyName("offer"), JsonIgnore(Condition = JsonIgnoreCondition.Never)] AdapterPackageUpdateOffer? Offer);
 
 public static class AdapterDeploymentContract
 {
@@ -69,9 +76,9 @@ public static class AdapterDeploymentContract
         ArgumentNullException.ThrowIfNull(installed);
         ArgumentNullException.ThrowIfNull(offer);
         if (!AdapterPackageMetadata.IsCanonicalId(installed.AdapterId) || offer.AdapterId != installed.AdapterId ||
-            offer.Location is null || !IsExternalHttpsUri(offer.Location))
+            offer.Location is null || !IsPackageLocation(offer.Location))
         {
-            throw new InvalidDataException("An update offer must name the installed Adapter and an HTTPS download without embedded credentials.");
+            throw new InvalidDataException("An update offer must name the installed Adapter and provide an HTTPS URL or an absolute local Windows .mpadapter path.");
         }
 
         var (oldVersion, oldPreview) = AdapterPackageMetadata.ParseVersion(installed.Version);
@@ -85,4 +92,12 @@ public static class AdapterDeploymentContract
 
     internal static bool IsExternalHttpsUri(Uri uri) => uri.IsAbsoluteUri && uri.Scheme == Uri.UriSchemeHttps &&
         uri.Host.Length != 0 && uri.UserInfo.Length == 0 && uri.OriginalString.Length <= 2048;
+
+    private static bool IsPackageLocation(Uri uri) => uri.IsAbsoluteUri && uri.OriginalString.Length <= 2048 &&
+        !uri.OriginalString.Any(char.IsControl) && uri.Fragment.Length == 0 &&
+        ((IsExternalHttpsUri(uri) && !uri.IsLoopback) ||
+        (uri.IsFile && !uri.IsUnc && uri.Host.Length == 0 && uri.Query.Length == 0 &&
+            uri.LocalPath is { Length: >= 4 } path && char.IsAsciiLetter(path[0]) && path[1] == ':' &&
+            path[2] is '\\' or '/' && !path.AsSpan(2).Contains(':') && !path.Any(char.IsControl) &&
+            string.Equals(Path.GetExtension(path), ".mpadapter", StringComparison.OrdinalIgnoreCase)));
 }
