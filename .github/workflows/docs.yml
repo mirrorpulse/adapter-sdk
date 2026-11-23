@@ -7,6 +7,7 @@ on:
       - README.md
       - docs/**
       - eng/docs/**
+      - eng/sdk-version-policy.ps1
       - src/**
       - Directory.Build.props
       - Directory.Build.targets
@@ -19,7 +20,6 @@ on:
       version:
         description: 'Documentation source version label'
         required: false
-        default: '1.0.0-preview.5'
         type: string
 
 concurrency:
@@ -53,7 +53,7 @@ jobs:
       - name: Generate integrated documentation
         shell: pwsh
         env:
-          DOCS_VERSION: ${{ inputs.version || '1.0.0-preview.5' }}
+          DOCS_VERSION: ${{ inputs.version }}
         run: ./eng/docs/build-docs.ps1 -Configuration Release -Version $env:DOCS_VERSION
 
       - name: Verify documentation bundle

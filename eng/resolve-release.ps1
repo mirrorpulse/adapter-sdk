@@ -3,11 +3,7 @@ param()
 
 $ErrorActionPreference = 'Stop'
 . (Join-Path $PSScriptRoot 'sdk-version-policy.ps1')
-[xml]$project = Get-Content -LiteralPath (Join-Path $PSScriptRoot '../src/MirrorPulse.Adapter.Sdk/MirrorPulse.Adapter.Sdk.csproj') -Raw
-$version = [string]$project.Project.PropertyGroup.VersionPrefix
-$suffix = [string]$project.Project.PropertyGroup.VersionSuffix
-if ($suffix) { $version += '-' + $suffix }
-$version = Get-SdkReleaseVersion $version
+$version = Get-SdkProjectReleaseVersion
 $preview = $version.Contains('-preview.', [StringComparison]::Ordinal)
 $environment = if ($preview) { 'preview' } else { 'stable' }
 $branch = if ($preview) { 'refs/heads/develop' } else { 'refs/heads/main' }
