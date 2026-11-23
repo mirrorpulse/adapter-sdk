@@ -1,0 +1,12 @@
+[Bb]in/
+[Oo]bj/
+TestResults/
+artifacts/
+*.pfx
+*.p12
+*.key
+*.pem
+.env
+.env.*
+.DS_Store
+Thumbs.db
