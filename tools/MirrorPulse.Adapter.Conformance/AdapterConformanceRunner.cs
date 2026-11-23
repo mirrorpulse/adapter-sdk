@@ -11,8 +11,11 @@ namespace MirrorPulse.Adapter.Conformance;
 public static class AdapterConformanceRunner
 {
     public static async Task RunAsync(string executable, string transferCache, CancellationToken cancellationToken,
-        IReadOnlyList<string>? workerArguments = null)
+        IReadOnlyList<string>? workerArguments = null, string? singleRootKey = null)
     {
+        if (singleRootKey is not null) new AdapterFileAddress(singleRootKey, string.Empty).Validate();
+        string sourceRoot = singleRootKey ?? "left";
+        string destinationRoot = singleRootKey ?? "right";
         string pipeName = "mp-conformance-" + Guid.NewGuid().ToString("N");
         await using var pipe = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte,
             PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
@@ -40,87 +43,94 @@ public static class AdapterConformanceRunner
             Check(hello.MessageType == "Hello" && hello.ProtocolVersion == 1 && !hello.IsResponse, "Hello bootstrap");
             AdapterHello offer = AdapterHandshake.ReadHello(hello.Payload);
             Check(AdapterHandshake.Negotiate(offer, 3).SelectedVersion == 2, "V2 negotiation");
-            AdapterRootBinding[] roots = [
+            AdapterRootBinding[] roots = singleRootKey is null ? [
                 new("left", true, new Dictionary<string, string> { ["sourcePath"] = "left-source" }),
                 new("right", true, new Dictionary<string, string> { ["sourcePath"] = "right-source" }),
-                new("offline", false, new Dictionary<string, string> { ["sourcePath"] = "offline-source" })];
+                new("offline", false, new Dictionary<string, string> { ["sourcePath"] = "offline-source" })]
+                : [new(singleRootKey, true, new Dictionary<string, string>())];
             await wire.SendAsync("Ready", hello.RequestId, true, new AdapterReady(2, AdapterHandshake.V2Capabilities, roots, new Dictionary<string, string>()), cancellationToken).ConfigureAwait(false);
             AdapterControlFrame connected = await wire.ReadControlAsync(cancellationToken).ConfigureAwait(false);
             Check(connected.MessageType == "Connected" && connected.ProtocolVersion == 2 && !connected.IsResponse, "Connected selected version");
-            foreach (string root in new[] { "left", "right" })
+            foreach (AdapterRootBinding binding in roots.Where(binding => binding.Enabled))
             {
+                string root = binding.RootKey;
                 AdapterControlFrame list = await wire.RequestAsync("List", root, new { rootKey = root, path = "", pageSize = 1, cursor = (string?)null }, cancellationToken).ConfigureAwait(false);
                 Check(list.MessageType == "DirectoryPage" && list.Payload.GetProperty("entries").GetArrayLength() == 1, "One bounded directory page");
                 JsonElement entry = list.Payload.GetProperty("entries")[0];
-                Check(entry.GetProperty("remoteId").GetString() == "readme.txt", "Same raw remote ID in both roots");
+                Check(entry.GetProperty("remoteId").GetString() == "readme.txt", "Expected root-local file identity");
                 long length = entry.GetProperty("length").GetInt64();
                 byte[] read = await wire.ReadRangeAsync(root, "readme.txt", length, cancellationToken).ConfigureAwait(false);
                 Check(Encoding.UTF8.GetString(read) == "Memory source: " + root + "\n", "Root-scoped bytes");
             }
-            AdapterControlFrame unknown = await wire.RequestAsync("Stat", "unknown", new { rootKey = "unknown", path = "readme.txt" }, cancellationToken).ConfigureAwait(false);
+            string unknownRoot = singleRootKey == "unknown" ? "other" : "unknown";
+            AdapterControlFrame unknown = await wire.RequestAsync("Stat", unknownRoot, new { rootKey = unknownRoot, path = "readme.txt" }, cancellationToken).ConfigureAwait(false);
             Check(unknown.MessageType == "OperationError" && unknown.Payload.GetProperty("code").GetString() == "UnknownRoot", "Unknown root rejected");
-            AdapterControlFrame offline = await wire.RequestAsync("Stat", "offline", new { rootKey = "offline", path = "readme.txt" }, cancellationToken).ConfigureAwait(false);
-            Check(offline.MessageType == "OperationError" && offline.Payload.GetProperty("code").GetString() == "RootOffline", "Disabled root stays offline");
+            if (singleRootKey is null)
+            {
+                AdapterControlFrame offline = await wire.RequestAsync("Stat", "offline", new { rootKey = "offline", path = "readme.txt" }, cancellationToken).ConfigureAwait(false);
+                Check(offline.MessageType == "OperationError" && offline.Payload.GetProperty("code").GetString() == "RootOffline", "Disabled root stays offline");
+            }
             Guid canceledOperation = Guid.NewGuid();
             Guid canceledRequest = Guid.NewGuid();
             Guid canceledStream = Guid.NewGuid();
             await wire.SendAsync("Upload", canceledRequest, false, new
             {
-                rootKey = "left",
+                rootKey = sourceRoot,
                 path = "canceled.bin",
                 operationId = canceledOperation,
                 streamId = canceledStream,
                 length = 2,
                 preconditions = new AdapterMutationPreconditions()
             }, cancellationToken).ConfigureAwait(false);
-            AdapterControlFrame uploadReady = await wire.ReadResponseAsync(canceledRequest, "left", cancellationToken).ConfigureAwait(false);
+            AdapterControlFrame uploadReady = await wire.ReadResponseAsync(canceledRequest, sourceRoot, cancellationToken).ConfigureAwait(false);
             Check(uploadReady.MessageType == "UploadReady", "Cancelable upload ready");
-            await wire.SendChunkAsync(new(canceledRequest, instance, session, canceledStream, 0, new byte[] { 1 }, false) { RootKey = "left" }, cancellationToken).ConfigureAwait(false);
+            await wire.SendChunkAsync(new(canceledRequest, instance, session, canceledStream, 0, new byte[] { 1 }, false) { RootKey = sourceRoot }, cancellationToken).ConfigureAwait(false);
             Guid cancelId = Guid.NewGuid();
-            await wire.SendAsync("Cancel", cancelId, false, new { rootKey = "left", targetRequestId = canceledRequest, operationId = canceledOperation }, cancellationToken).ConfigureAwait(false);
-            AdapterControlFrame canceled = await wire.ReadResponseAsync(canceledRequest, "left", cancellationToken).ConfigureAwait(false);
+            await wire.SendAsync("Cancel", cancelId, false, new { rootKey = sourceRoot, targetRequestId = canceledRequest, operationId = canceledOperation }, cancellationToken).ConfigureAwait(false);
+            AdapterControlFrame canceled = await wire.ReadResponseAsync(canceledRequest, sourceRoot, cancellationToken).ConfigureAwait(false);
             Check(canceled.MessageType == "OperationError" && canceled.Payload.GetProperty("code").GetString() == "Canceled", "Canceled target terminates");
-            AdapterControlFrame cancelAck = await wire.ReadResponseAsync(cancelId, "left", cancellationToken).ConfigureAwait(false);
+            AdapterControlFrame cancelAck = await wire.ReadResponseAsync(cancelId, sourceRoot, cancellationToken).ConfigureAwait(false);
             Check(cancelAck.MessageType == "CancelAck" && cancelAck.Payload.GetProperty("targetRequestId").GetGuid() == canceledRequest, "Cancel acknowledged after cleanup");
             Check(!Directory.EnumerateFiles(transferCache).Any(), "Canceled lease was actually removed");
-            Check(await wire.StatAsync("left", "canceled.bin", cancellationToken).ConfigureAwait(false) is null, "Canceled upload never committed");
+            Check(await wire.StatAsync(sourceRoot, "canceled.bin", cancellationToken).ConfigureAwait(false) is null, "Canceled upload never committed");
             byte[] content = new byte[AdapterBinaryChunkV2Codec.MaximumChunkBytes + 17];
             Random.Shared.NextBytes(content);
-            string revision = await wire.UploadAsync("left", "uploaded.bin", content, cancellationToken).ConfigureAwait(false);
-            Check(await wire.StatAsync("right", "uploaded.bin", cancellationToken).ConfigureAwait(false) is null, "Upload did not cross roots");
+            string revision = await wire.UploadAsync(sourceRoot, "uploaded.bin", content, cancellationToken).ConfigureAwait(false);
+            if (singleRootKey is null)
+                Check(await wire.StatAsync(destinationRoot, "uploaded.bin", cancellationToken).ConfigureAwait(false) is null, "Upload did not cross roots");
             Guid moveOperation = Guid.NewGuid();
-            var move = new AdapterOperationRequest(moveOperation, "left", "uploaded.bin", "right", "moved.bin", new(revision));
-            AdapterControlFrame moved = await wire.RequestAsync("Move", "left", move, cancellationToken).ConfigureAwait(false);
+            var move = new AdapterOperationRequest(moveOperation, sourceRoot, "uploaded.bin", destinationRoot, "moved.bin", new(revision));
+            AdapterControlFrame moved = await wire.RequestAsync("Move", sourceRoot, move, cancellationToken).ConfigureAwait(false);
             Check(moved.MessageType == "MutationComplete" && moved.Payload.GetProperty("operationId").GetGuid() == moveOperation, "Move operation binding");
-            AdapterControlFrame retried = await wire.RequestAsync("Move", "left", move, cancellationToken).ConfigureAwait(false);
+            AdapterControlFrame retried = await wire.RequestAsync("Move", sourceRoot, move, cancellationToken).ConfigureAwait(false);
             Check(retried.MessageType == "MutationComplete" && retried.Payload.GetProperty("revision").GetString() == revision, "Stable mutation retry");
-            AdapterControlFrame equivalent = await wire.RequestAsync("Move", "left", new
+            AdapterControlFrame equivalent = await wire.RequestAsync("Move", sourceRoot, new
             {
                 preconditions = new { destinationMustBeAbsent = true, expectedRevision = revision },
                 futureOptionalField = "ignored",
                 path = "uploaded.bin",
-                rootKey = "left",
+                rootKey = sourceRoot,
                 operationId = moveOperation,
                 destinationPath = "moved.bin",
-                destinationRootKey = "right",
+                destinationRootKey = destinationRoot,
             }, cancellationToken).ConfigureAwait(false);
             Check(equivalent.MessageType == "MutationComplete" && equivalent.Payload.GetProperty("revision").GetString() == revision,
                 "Semantic retry ignores JSON property order and optional fields");
-            AdapterControlFrame rebound = await wire.RequestAsync("Move", "left", move with { DestinationPath = "rebound.bin" }, cancellationToken).ConfigureAwait(false);
+            AdapterControlFrame rebound = await wire.RequestAsync("Move", sourceRoot, move with { DestinationPath = "rebound.bin" }, cancellationToken).ConfigureAwait(false);
             Check(rebound.MessageType == "OperationError" && rebound.Payload.GetProperty("code").GetString() == "OperationBindingMismatch",
                 "Accepted operation cannot be rebound");
-            Check(await wire.StatAsync("right", "rebound.bin", cancellationToken).ConfigureAwait(false) is null, "Rebound mutation did not execute");
-            byte[] firstRange = await wire.ReadRangeAsync("right", "moved.bin", 32, cancellationToken).ConfigureAwait(false);
-            Check(firstRange.AsSpan().SequenceEqual(content.AsSpan(0, 32)), "Cross-root move bytes");
-            AdapterControlFrame created = await wire.RequestAsync("CreateDirectory", "left", new AdapterCreateDirectoryRequest(Guid.NewGuid(), "left", "empty"), cancellationToken).ConfigureAwait(false);
+            Check(await wire.StatAsync(destinationRoot, "rebound.bin", cancellationToken).ConfigureAwait(false) is null, "Rebound mutation did not execute");
+            byte[] firstRange = await wire.ReadRangeAsync(destinationRoot, "moved.bin", 32, cancellationToken).ConfigureAwait(false);
+            Check(firstRange.AsSpan().SequenceEqual(content.AsSpan(0, 32)), "Moved file retains its bytes");
+            AdapterControlFrame created = await wire.RequestAsync("CreateDirectory", sourceRoot, new AdapterCreateDirectoryRequest(Guid.NewGuid(), sourceRoot, "empty"), cancellationToken).ConfigureAwait(false);
             Check(created.MessageType == "MutationComplete", "Create directory");
-            AdapterControlFrame defaultDirectory = await wire.RequestAsync("CreateDirectory", "left",
-                new { operationId = Guid.NewGuid(), rootKey = "left", path = "default-policy" }, cancellationToken).ConfigureAwait(false);
+            AdapterControlFrame defaultDirectory = await wire.RequestAsync("CreateDirectory", sourceRoot,
+                new { operationId = Guid.NewGuid(), rootKey = sourceRoot, path = "default-policy" }, cancellationToken).ConfigureAwait(false);
             Check(defaultDirectory.MessageType == "MutationComplete", "Default directory condition");
-            AdapterControlFrame deleted = await wire.RequestAsync("Delete", "right", new
-            { operationId = Guid.NewGuid(), rootKey = "right", path = "moved.bin", preconditions = new { expectedRevision = revision } }, cancellationToken).ConfigureAwait(false);
+            AdapterControlFrame deleted = await wire.RequestAsync("Delete", destinationRoot, new
+            { operationId = Guid.NewGuid(), rootKey = destinationRoot, path = "moved.bin", preconditions = new { expectedRevision = revision } }, cancellationToken).ConfigureAwait(false);
             Check(deleted.MessageType == "MutationComplete", "Delete");
-            Check(await wire.StatAsync("right", "moved.bin", cancellationToken).ConfigureAwait(false) is null, "Deleted file absent");
+            Check(await wire.StatAsync(destinationRoot, "moved.bin", cancellationToken).ConfigureAwait(false) is null, "Deleted file absent");
             Check(!Directory.EnumerateFiles(transferCache).Any(), "Successful upload lease removed");
             await wire.SendAsync("Stop", Guid.NewGuid(), false, new { }, cancellationToken).ConfigureAwait(false);
             await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);

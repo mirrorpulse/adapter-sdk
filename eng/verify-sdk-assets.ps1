@@ -40,5 +40,7 @@ if ($ExecuteRunner) {
     if ($LASTEXITCODE -ne 0) { throw 'Sample publish failed.' }
     & (Join-Path $runner 'MirrorPulse.Adapter.Conformance.exe') --worker (Join-Path $worker 'MirrorPulse.Adapter.SampleWorker.exe') --transfer-cache (Join-Path $runRoot 'transfers')
     if ($LASTEXITCODE -ne 0) { throw 'Published runner process conformance failed.' }
+    & (Join-Path $runner 'MirrorPulse.Adapter.Conformance.exe') --worker (Join-Path $worker 'MirrorPulse.Adapter.SampleWorker.exe') --transfer-cache (Join-Path $runRoot 'single-root-transfers') --single-root sample
+    if ($LASTEXITCODE -ne 0) { throw 'Published single-root conformance failed.' }
 }
 Write-Host 'Fixed SDK assets and SHA256 inventory verified.'
