@@ -38,6 +38,15 @@ foreach ($navigationMarker in @('title="Overview"', '>Guides</a>', '>API referen
 
 $indexHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'index.html') -Raw
 $gettingStartedHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'articles\getting-started.html') -Raw
+
+$apiHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'api\MirrorPulse.Adapter.Sdk.html') -Raw
+foreach ($page in @($indexHtml, $gettingStartedHtml, $apiHtml)) {
+    $back = $page.IndexOf('<a class="cf-github-link nav-link" href="https://mirrorpulse.github.io/" aria-label="MirrorPulse home"', [StringComparison]::Ordinal)
+    $brand = $page.IndexOf('<a class="navbar-brand"', [StringComparison]::Ordinal)
+    if ($back -lt 0 -or $brand -le $back) {
+        throw 'The MirrorPulse home link must precede the brand on the home, guide and API pages.'
+    }
+}
 if ($indexHtml -notlike '*blob/main/README.md#L1*') {
     throw 'The documentation home does not link Edit this page to README.md.'
 }

@@ -110,6 +110,13 @@ try {
         $htmlText = Get-Content -LiteralPath $htmlFile.FullName -Raw
         $rewritten = Convert-DocumentationSourceLinks $htmlText
 
+        # Keep the return link beside the site brand in the shared navbar.
+        $brandTag = '<a class="navbar-brand"'
+        $homeLink = '<a class="cf-github-link nav-link" href="https://mirrorpulse.github.io/" aria-label="MirrorPulse home" title="MirrorPulse home"><span aria-hidden="true">←</span></a>'
+        if ($rewritten.Contains($brandTag, [StringComparison]::Ordinal)) {
+            $rewritten = $rewritten.Replace($brandTag, $homeLink + [Environment]::NewLine + '          ' + $brandTag)
+        }
+
         # The modern template does not load a custom public/main.js by itself.
         # Load it from every generated page so breadcrumb repairs apply to
         # pages at the root and at arbitrary nested paths alike.
