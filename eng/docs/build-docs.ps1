@@ -80,6 +80,8 @@ try {
       href: articles/getting-started.md
     - name: Package configuration
       href: articles/package-configuration.md
+    - name: SDK trusted publishing
+      href: articles/nuget-publishing.md
     - name: Original directory admission
       href: articles/original-directory-admission-wire.md
     - name: Original directory retirement

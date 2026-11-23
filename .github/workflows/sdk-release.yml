@@ -1,0 +1,126 @@
+name: SDK Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the verified SDK to NuGet and GitHub
+        type: boolean
+        default: false
+      confirm:
+        description: Type PUBLISH to authorize publication
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: adapter-sdk-release
+  cancel-in-progress: false
+
+jobs:
+  candidate:
+    runs-on: windows-latest
+    outputs:
+      source: ${{ steps.identity.outputs.source }}
+      environment: ${{ steps.identity.outputs.environment }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - name: Resolve package version and release channel
+        id: identity
+        env:
+          MP_SDK_PUBLISH: ${{ inputs.publish }}
+          MP_SDK_CONFIRM: ${{ inputs.confirm }}
+        run: ./eng/resolve-release.ps1
+      - name: Build and verify the immutable release assets
+        env:
+          SOURCE: ${{ steps.identity.outputs.source }}
+          VERSION: ${{ steps.identity.outputs.version }}
+        run: |
+          ./eng/build-sdk-assets.ps1 -SourceSha $env:SOURCE -Version $env:VERSION
+          ./eng/publish-sdk-nuget.ps1 -AssetDirectory artifacts/sdk-release -SourceSha $env:SOURCE -DryRun
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sdk-candidate
+          path: artifacts/sdk-release/*
+          if-no-files-found: error
+
+  conformance:
+    needs: candidate
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.candidate.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: sdk-candidate
+          path: artifacts/sdk-release
+      - name: Run the matching native runner and verify the package
+        env:
+          SOURCE: ${{ needs.candidate.outputs.source }}
+        run: ./eng/verify-sdk-assets.ps1 -AssetDirectory artifacts/sdk-release -SourceSha $env:SOURCE -ExecuteRunner
+
+  publish:
+    if: inputs.publish == true
+    needs: [candidate, conformance]
+    environment: ${{ needs.candidate.outputs.environment }}
+    runs-on: windows-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ needs.candidate.outputs.source }}
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: sdk-candidate
+          path: artifacts/sdk-release
+      - name: Verify the candidate and its release destination is still available
+        env:
+          SOURCE: ${{ needs.candidate.outputs.source }}
+          GH_TOKEN: ${{ github.token }}
+          NUGET_USER: ${{ secrets.NUGET_USER }}
+        run: |
+          ./eng/publish-sdk-nuget.ps1 -AssetDirectory artifacts/sdk-release -SourceSha $env:SOURCE -DryRun
+          ./eng/publish-sdk-release.ps1 -AssetDirectory artifacts/sdk-release -CheckDestination
+          if ([string]::IsNullOrWhiteSpace($env:NUGET_USER)) { throw 'NUGET_USER must contain the NuGet profile name.' }
+      - name: Exchange GitHub OIDC for a temporary NuGet credential
+        id: login
+        uses: NuGet/login@ebc737b6fc418a6ca0073cf116ec8dc156d8b81e # v1
+        with:
+          user: ${{ secrets.NUGET_USER }}
+      - name: Publish the verified NuGet candidate
+        env:
+          SOURCE: ${{ needs.candidate.outputs.source }}
+          NUGET_API_KEY: ${{ steps.login.outputs.NUGET_API_KEY }}
+        run: ./eng/publish-sdk-nuget.ps1 -AssetDirectory artifacts/sdk-release -SourceSha $env:SOURCE
+      - name: Create the corresponding GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./eng/publish-sdk-release.ps1 -AssetDirectory artifacts/sdk-release
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        if: always()
+        with:
+          name: sdk-publication-evidence
+          path: artifacts/sdk-nuget-evidence.json
+          if-no-files-found: warn
