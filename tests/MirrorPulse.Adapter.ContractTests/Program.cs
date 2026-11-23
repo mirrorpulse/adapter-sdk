@@ -36,6 +36,7 @@ Check(AdapterHandshake.Negotiate(modern, 0).ErrorCode == "InvalidRoots", "V2 req
 AdapterRootBinding[] roots = [new("photos", true, new Dictionary<string, string>()), new("archive", false, new Dictionary<string, string>())];
 AdapterHandshake.ValidateReady(new(2, AdapterHandshake.V2Capabilities, roots, new Dictionary<string, string>()), modern);
 Reject(() => AdapterHandshake.ValidateReady(new(2, AdapterHandshake.V2Capabilities, [roots[0], roots[0]], new Dictionary<string, string>()), modern), "Duplicate root keys");
+CheckAuthorizationHandshake();
 var chunk = new AdapterBinaryChunk(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 0, new byte[] { 1, 2, 3 }, true) { RootKey = "photos" };
 byte[] encodedChunk = AdapterBinaryChunkV2Codec.Encode(chunk);
 Check(AdapterBinaryChunkV2Codec.Decode(encodedChunk).RootKey == "photos", "Binary root round trip");
@@ -80,6 +81,51 @@ finally { if (Directory.Exists(processCache)) Directory.Delete(processCache, rec
 static void Check(bool condition, string name)
 {
     if (!condition) throw new InvalidOperationException(name);
+}
+
+static void CheckAuthorizationHandshake()
+{
+    Guid instance = Guid.NewGuid();
+    Guid session = Guid.NewGuid();
+    string[] standard = ["--instance-id", instance.ToString("D"), "--worker-session-id", session.ToString("D"),
+        "--pipe-name", "fixture"];
+    Check(!AdapterWorkerProcessArguments.Parse(standard).ConfigurationOnly, "Normal startup mode stays unchanged");
+    var options = AdapterWorkerProcessArguments.Parse([.. standard, AdapterWorkerProcessArguments.ConfigurationOnlyOption]);
+    Check(options.ConfigurationOnly && options.InstanceId == instance && options.WorkerSessionId == session, "Configuration-only launch binding");
+    try
+    {
+        AdapterWorkerProcessArguments.Parse([.. standard, "--unknown-launch-option"]);
+        throw new InvalidOperationException("An unknown launch flag was accepted.");
+    }
+    catch (ArgumentException) { }
+
+    var hello = new AdapterHello(new(2, 2), [AdapterConfigurationCallbackContract.Capability]);
+    using var payload = JsonDocument.Parse("""
+        {"selectedVersion":2,"configurationOnly":true,"capabilities":["configuration-callbacks"],"roots":[],"configuration":{},
+         "credentialBindings":{"password":"opaque-vault-reference"}}
+        """);
+    var ready = AdapterProtocolJson.Decode<AdapterReady>(System.Text.Encoding.UTF8.GetBytes(payload.RootElement.GetRawText()));
+    AdapterHandshake.ValidateReady(ready, hello, options.ConfigurationOnly);
+    Check(ready.CredentialBindings?["password"] == "opaque-vault-reference", "Typed password references");
+    Reject(() => AdapterHandshake.ValidateReady(ready, hello), "A normal launch cannot accept a configuration-only Ready");
+    Reject(() => AdapterHandshake.ValidateReady(ready with { ConfigurationOnly = false }, hello, true), "Configuration-only launch requires its mode");
+    Reject(() => AdapterHandshake.ValidateReady(ready with { Roots = [new("photos", true, ready.Configuration)] }, hello, true),
+        "Configuration-only mode has no root binding");
+    Reject(() => AdapterHandshake.ValidateReady(ready with { Capabilities = AdapterHandshake.V2Capabilities }, hello, true),
+        "Configuration-only mode grants no sync capabilities");
+    Reject(() => AdapterHandshake.ValidateReady(ready, hello with { SupportedVersions = new(1, 1) }, true), "Configuration-only mode requires v2");
+    Reject(() => AdapterHandshake.ValidateReady(ready, hello with { Capabilities = [] }, true), "Worker must offer authorization capability");
+
+    var now = DateTimeOffset.UtcNow;
+    var request = new AdapterConfigurationCallbackRequest(Guid.NewGuid(), "authorize", now.AddMinutes(1));
+    using var requestPayload = JsonDocument.Parse(AdapterProtocolJson.Encode(request));
+    var frame = new AdapterControlFrame(2, AdapterConfigurationCallbackContract.StartMessage, Guid.NewGuid(), instance, session,
+        false, requestPayload.RootElement);
+    Check(AdapterConfigurationCallbackContract.ReadRequest(frame, now) == request, "Typed callback request");
+    Reject(() => AdapterConfigurationCallbackContract.ReadRequest(frame, request.ExpiresAt), "Expired callback request");
+    Reject(() => AdapterConfigurationCallbackContract.ReadRequest(frame with { IsResponse = true }, now), "Callback response is not a request");
+    Reject(() => AdapterConfigurationCallbackContract.ReadRequest(frame with { MessageType = "RemoteBatch" }, now), "Wrong callback message");
+    Console.WriteLine("Configuration-only launch and authorization handshake checks passed.");
 }
 
 static void Reject(Action action, string name)
