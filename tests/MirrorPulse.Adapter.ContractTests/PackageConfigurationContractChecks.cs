@@ -67,6 +67,56 @@ internal static class PackageConfigurationContractChecks
             AdapterConfigurationTranslations.Read(metadata, form, incomplete);
         }, "missing fallback label");
         Console.WriteLine("SDK 1.0 package identity, single-root, signed assets, form bindings and localized fallback checks passed.");
+        ValidateCallback(form);
+        ValidateHealthAndUpdate(form, metadata.Identity);
+    }
+
+    private static void ValidateCallback(AdapterConfigurationForm form)
+    {
+        var now = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var request = new AdapterConfigurationCallbackRequest(Guid.NewGuid(), "authorize", now.AddMinutes(2));
+        var pending = new AdapterConfigurationCallbackResult(request.InvocationId, request.CallbackId,
+            AdapterConfigurationCallbackState.Pending, InteractionUri: new Uri("https://example.invalid/authorize"));
+        AdapterConfigurationCallbackContract.ValidateResult(form, request, pending, now);
+        var secret = new AdapterConfigurationWrite("password", "sample-private-value");
+        var completed = pending with
+        {
+            State = AdapterConfigurationCallbackState.Completed,
+            InteractionUri = null,
+            Writes = [secret, new("scopes", "read,write")],
+        };
+        AdapterConfigurationCallbackResult roundTrip =
+            AdapterProtocolJson.Decode<AdapterConfigurationCallbackResult>(AdapterProtocolJson.Encode(completed));
+        AdapterConfigurationCallbackContract.ValidateResult(form, request, roundTrip, now);
+        if (secret.ToString().Contains(secret.Value, StringComparison.Ordinal)) throw new InvalidOperationException("Callback text leaked a field value.");
+        Reject(() => AdapterConfigurationCallbackContract.ValidateResult(form, request, completed, request.ExpiresAt), "expired callback");
+        Reject(() => AdapterConfigurationCallbackContract.ValidateResult(form, request, completed with { InvocationId = Guid.NewGuid() }, now),
+            "another callback invocation");
+        Reject(() => AdapterConfigurationCallbackContract.ValidateResult(form, request, completed with { Writes = [new("endpoint", "sample")] }, now),
+            "callback write beyond its declared scope");
+        Reject(() => AdapterConfigurationCallbackContract.ValidateResult(form, request, completed with { Writes = [new("scopes", "unknown")] }, now),
+            "callback wrote an invalid choice");
+        Reject(() => AdapterConfigurationCallbackContract.ValidateResult(form, request,
+            pending with { InteractionUri = new Uri("http://example.invalid/authorize") }, now), "non-HTTPS callback");
+        Reject(() => AdapterConfigurationCallbackContract.ValidateResult(form, request,
+            completed with { State = AdapterConfigurationCallbackState.Cancelled }, now), "cancelled callback wrote values");
+    }
+
+    private static void ValidateHealthAndUpdate(AdapterConfigurationForm form, AdapterPackageIdentity installed)
+    {
+        AdapterDeploymentContract.ValidateHealthIssue(form, new(AdapterHealthReason.ExpiredCredential, "password"));
+        AdapterDeploymentContract.ValidateHealthIssue(form, new(AdapterHealthReason.SourceUnavailable));
+        Reject(() => AdapterDeploymentContract.ValidateHealthIssue(form, new(AdapterHealthReason.ExpiredCredential, "endpoint")),
+            "credential health reason assigned to a non-password field");
+        Reject(() => AdapterDeploymentContract.ValidateHealthIssue(form, new(AdapterHealthReason.InvalidConfiguration, "notDeclared")),
+            "health reason assigned to an unknown field");
+        var update = new AdapterPackageUpdateOffer(installed.AdapterId, "1.2.3", new Uri("https://example.invalid/versions/1.2.3"));
+        AdapterDeploymentContract.ValidateUpdateOffer(installed, update);
+        Reject(() => AdapterDeploymentContract.ValidateUpdateOffer(installed, update with { AdapterId = "com.example.other" }), "update for another Adapter");
+        Reject(() => AdapterDeploymentContract.ValidateUpdateOffer(installed, update with { Version = installed.Version }), "same-version update");
+        Reject(() => AdapterDeploymentContract.ValidateUpdateOffer(installed, update with { Version = "1.2.3-preview.3" }), "older preview update");
+        Reject(() => AdapterDeploymentContract.ValidateUpdateOffer(installed, update with { Location = new Uri("file:///package.mpadapter") }), "untrusted local update path");
+        Console.WriteLine("Callback expiry and field scope, structured health and update-offer checks passed.");
     }
 
     private static AdapterPackageMetadata ReadManifest(string text, AdapterPackageIdentity? identity = null)

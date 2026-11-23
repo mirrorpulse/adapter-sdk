@@ -85,6 +85,19 @@ public sealed partial class AdapterConfigurationForm
     internal static string RequireIdentifier(string value) => value.Length <= 64 && IdentifierPattern().IsMatch(value)
         ? value : throw new InvalidDataException("Form identifiers must use letters, digits, dots, underscores or hyphens and start with a letter.");
 
+    internal static bool AcceptsValue(AdapterFormField field, string? value)
+    {
+        if (value is null || value.Length > 16384 || (field.Required && string.IsNullOrWhiteSpace(value))) return false;
+        return field.Kind switch
+        {
+            AdapterFormFieldKind.Text or AdapterFormFieldKind.Password => true,
+            AdapterFormFieldKind.CheckBox => value is "true" or "false",
+            AdapterFormFieldKind.SingleChoice or AdapterFormFieldKind.MultiChoice => IsChoiceValue(field.Kind, value,
+                field.Options.Select(option => option.Id).ToHashSet(StringComparer.Ordinal)),
+            _ => false,
+        };
+    }
+
     private static AdapterFormControl ReadControl(XElement element, IReadOnlySet<string> files)
     {
         return element.Name.LocalName switch

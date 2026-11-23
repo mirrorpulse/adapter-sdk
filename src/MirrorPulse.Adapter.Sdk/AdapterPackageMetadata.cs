@@ -35,14 +35,11 @@ public sealed partial record AdapterPackageMetadata(
         }
 
         var identity = new AdapterPackageIdentity(ReadString(manifest, "adapterId"), ReadString(manifest, "version"));
-        Match version = PackageVersionPattern().Match(identity.Version);
-        if (identity.AdapterId.Length > 128 || !PackageIdPattern().IsMatch(identity.AdapterId) || !version.Success ||
-            version.Groups.Cast<Group>().Skip(1).Any(part => part.Success &&
-                !int.TryParse(part.ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture, out _)) ||
-            (expectedIdentity is not null && identity != expectedIdentity))
+        if (!IsCanonicalId(identity.AdapterId) || (expectedIdentity is not null && identity != expectedIdentity))
         {
             throw new InvalidDataException("The package identity is invalid or differs from the requested identity.");
         }
+        _ = ParseVersion(identity.Version);
 
         JsonElement roots = ReadProperty(manifest, "rootDefinitions", JsonValueKind.Array);
         if (roots.GetArrayLength() != 1 ||
@@ -88,6 +85,21 @@ public sealed partial record AdapterPackageMetadata(
         }
 
         return RequireAsset(path, extension, files);
+    }
+
+    internal static bool IsCanonicalId(string? id) => id is { Length: <= 128 } && PackageIdPattern().IsMatch(id);
+
+    internal static (Version Version, int? Preview) ParseVersion(string? value)
+    {
+        Match version = PackageVersionPattern().Match(value ?? string.Empty);
+        if (!version.Success || version.Groups.Cast<Group>().Skip(1).Any(part => part.Success &&
+            !int.TryParse(part.ValueSpan, NumberStyles.None, CultureInfo.InvariantCulture, out _)))
+        {
+            throw new InvalidDataException("The Adapter package version is invalid.");
+        }
+
+        int Component(int index) => int.Parse(version.Groups[index].ValueSpan, CultureInfo.InvariantCulture);
+        return (new Version(Component(1), Component(2), Component(3)), version.Groups[4].Success ? Component(4) : null);
     }
 
     internal static void RequireUniqueProperties(JsonElement element)
