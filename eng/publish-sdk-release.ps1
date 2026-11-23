@@ -16,12 +16,9 @@ if ($LASTEXITCODE -ne 0 -or $source -cne $manifest.sourceSha -or $env:GITHUB_REF
 }
 
 $remote = "https://github.com/$($manifest.repository).git"
-& git ls-remote --exit-code --refs $remote "refs/tags/$($manifest.tag)" | Out-Null
-switch ($LASTEXITCODE) {
-    0 { throw 'The SDK tag already exists.' }
-    2 { }
-    default { throw 'Could not verify that the SDK tag is available.' }
-}
+$existingTag = @(& git ls-remote --refs $remote "refs/tags/$($manifest.tag)")
+if ($LASTEXITCODE -ne 0) { throw 'Could not verify that the SDK tag is available.' }
+if ($existingTag.Count -ne 0) { throw 'The SDK tag already exists.' }
 if ($CheckDestination) { return }
 
 & gh api "repos/$($manifest.repository)/git/refs" -f "ref=refs/tags/$($manifest.tag)" -f "sha=$source" --silent
