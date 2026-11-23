@@ -1,0 +1,55 @@
+name: SDK CI
+
+on:
+  pull_request:
+  push:
+    branches: [develop, main]
+
+permissions:
+  contents: read
+
+jobs:
+  contracts:
+    name: Windows contracts (${{ matrix.architecture }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - architecture: x64
+            runner: windows-latest
+          - architecture: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - name: Restore locked dependencies
+        run: dotnet restore MirrorPulse.Adapter.sln --locked-mode
+      - name: Build Release
+        run: dotnet build MirrorPulse.Adapter.sln --configuration Release --no-restore
+      - name: Run contracts and real Worker conformance
+        run: dotnet run --project tests/MirrorPulse.Adapter.ContractTests --configuration Release --no-build
+  documentation:
+    name: Documentation bundle
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6
+        with:
+          global-json-file: global.json
+      - name: Restore documentation tooling
+        run: dotnet tool restore --tool-manifest eng/docs/.config/dotnet-tools.json
+      - name: Verify source links
+        run: pwsh ./eng/docs/verify-source-links.ps1
+      - name: Build the documentation bundle
+        run: pwsh ./eng/docs/build-docs.ps1
+      - name: Verify the documentation bundle
+        run: pwsh ./eng/docs/verify-docs.ps1
