@@ -1,0 +1,127 @@
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - README.md
+      - docs/**
+      - eng/docs/**
+      - src/**
+      - Directory.Build.props
+      - Directory.Build.targets
+      - Directory.Packages.props
+      - global.json
+      - MirrorPulse.Adapter.sln
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Documentation source version label'
+        required: false
+        default: '1.0.0-preview.1'
+        type: string
+
+concurrency:
+  group: adapter-docs-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  generate-and-sync:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - name: Check out MirrorPulse Adapter SDK
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.3.0
+
+      - name: Install .NET SDK
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+        with:
+          global-json-file: global.json
+
+      - name: Restore solution
+        shell: pwsh
+        run: dotnet restore MirrorPulse.Adapter.sln --locked-mode
+
+      - name: Restore documentation tools
+        shell: pwsh
+        run: dotnet tool restore --tool-manifest eng/docs/.config/dotnet-tools.json
+
+      - name: Generate integrated documentation
+        shell: pwsh
+        env:
+          DOCS_VERSION: ${{ inputs.version || '1.0.0-preview.1' }}
+        run: ./eng/docs/build-docs.ps1 -Configuration Release -Version $env:DOCS_VERSION
+
+      - name: Verify documentation bundle
+        shell: pwsh
+        run: ./eng/docs/verify-docs.ps1
+
+      - name: Upload generated documentation evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: adapter-docs-${{ github.sha }}
+          path: artifacts/docs/adapter
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Push isolated documentation bundle to Pages
+        if: github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          ADAPTER_DOCS_TOKEN: ${{ secrets.ADAPTERDOCS }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if ([string]::IsNullOrWhiteSpace($env:ADAPTER_DOCS_TOKEN)) {
+              throw 'The ADAPTERDOCS repository secret is not available.'
+          }
+
+          $pagesRoot = Join-Path $env:RUNNER_TEMP 'mirrorpulse-pages'
+          $docsRoot = (Resolve-Path 'artifacts/docs/adapter').Path
+          if (Test-Path -LiteralPath $pagesRoot) {
+              Remove-Item -LiteralPath $pagesRoot -Recurse -Force
+          }
+
+          $env:GIT_TERMINAL_PROMPT = '0'
+          $credentialBytes = [System.Text.Encoding]::ASCII.GetBytes("x-access-token:$env:ADAPTER_DOCS_TOKEN")
+          $encodedCredentials = [Convert]::ToBase64String($credentialBytes)
+          $authHeader = "AUTHORIZATION: basic $encodedCredentials"
+          try {
+              git -c "http.extraheader=$authHeader" clone --depth 1 --branch main https://github.com/mirrorpulse/mirrorpulse.github.io.git $pagesRoot
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Pages repository clone failed with exit code $LASTEXITCODE."
+              }
+              $pagesDocs = Join-Path $pagesRoot 'content/adapter'
+              New-Item -ItemType Directory -Path $pagesDocs -Force | Out-Null
+              Get-ChildItem -LiteralPath $pagesDocs -Force | Remove-Item -Recurse -Force
+              Get-ChildItem -LiteralPath $docsRoot -Force | Copy-Item -Destination $pagesDocs -Recurse -Force
+
+              git -C $pagesRoot add --all -- content/adapter
+              $staged = @(git -C $pagesRoot diff --cached --name-only)
+              $outside = @($staged | Where-Object { $_ -notlike 'content/adapter/*' })
+              if ($outside.Count -gt 0) {
+                  throw "Documentation sync attempted to modify paths outside content/adapter: $($outside -join ', ')"
+              }
+              if ($staged.Count -eq 0) {
+                  Write-Output 'Pages documentation bundle is already up to date.'
+                  exit 0
+              }
+
+              git -C $pagesRoot config user.name 'MirrorPulse Docs Bot'
+              git -C $pagesRoot config user.email 'docs-bot@mirrorpulse.github.io'
+              git -C $pagesRoot commit -m "docs(adapter): sync $env:GITHUB_SHA"
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Pages documentation commit failed with exit code $LASTEXITCODE."
+              }
+              git -c "http.extraheader=$authHeader" -C $pagesRoot push origin HEAD:main
+              if ($LASTEXITCODE -ne 0) {
+                  throw "Pages documentation push failed with exit code $LASTEXITCODE."
+              }
+          }
+          finally {
+              Remove-Item Env:GIT_TERMINAL_PROMPT -ErrorAction SilentlyContinue
+              Remove-Item Env:ADAPTER_DOCS_TOKEN -ErrorAction SilentlyContinue
+          }
