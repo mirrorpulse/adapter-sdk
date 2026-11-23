@@ -2,7 +2,7 @@
 param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
-    [string]$Version = '1.0.0-preview.1'
+    [string]$Version = '1.0.0-preview.2'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -78,6 +78,8 @@ try {
   items:
     - name: Getting started
       href: articles/getting-started.md
+    - name: Package configuration
+      href: articles/package-configuration.md
     - name: Original directory admission
       href: articles/original-directory-admission-wire.md
     - name: Original directory retirement

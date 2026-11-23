@@ -1,6 +1,8 @@
 using System.Text.Json;
 using MirrorPulse.Adapter.Sdk;
 
+PackageConfigurationContractChecks.Run();
+
 string vector = File.ReadAllText(Path.Combine(AppContext.BaseDirectory, "vectors", "move-v2.json")).Trim();
 AdapterOperationRequest request = AdapterProtocolJson.Decode<AdapterOperationRequest>(System.Text.Encoding.UTF8.GetBytes(vector));
 AdapterProtocolJson.ValidateMutation(request, requiresDestination: true);
