@@ -110,6 +110,16 @@ internal static class PackageConfigurationContractChecks
             "credential health reason assigned to a non-password field");
         Reject(() => AdapterDeploymentContract.ValidateHealthIssue(form, new(AdapterHealthReason.InvalidConfiguration, "notDeclared")),
             "health reason assigned to an unknown field");
+        var report = new AdapterHealthReport([new(AdapterHealthReason.ExpiredCredential, "password"),
+            new(AdapterHealthReason.SourceUnavailable)]);
+        AdapterDeploymentContract.ValidateHealthReport(form,
+            AdapterProtocolJson.Decode<AdapterHealthReport>(AdapterProtocolJson.Encode(report)));
+        AdapterDeploymentContract.ValidateHealthReport(form, new([]));
+        Reject(() => AdapterDeploymentContract.ValidateHealthReport(form, new([report.Issues[0], report.Issues[0]])), "duplicate health issue");
+        Reject(() => AdapterDeploymentContract.ValidateHealthReport(form, new([new(AdapterHealthReason.WorkerFailure, "endpoint")])),
+            "operational failure with a field");
+        Reject(() => AdapterDeploymentContract.ValidateHealthReport(form, new(Enumerable.Repeat(report.Issues[0], 17).ToArray())),
+            "oversized health report");
         var update = new AdapterPackageUpdateOffer(installed.AdapterId, "1.2.3", new Uri("https://example.invalid/versions/1.2.3"));
         AdapterDeploymentContract.ValidateUpdateOffer(installed, update);
         Reject(() => AdapterDeploymentContract.ValidateUpdateOffer(installed, update with { AdapterId = "com.example.other" }), "update for another Adapter");
