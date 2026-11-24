@@ -4,6 +4,7 @@ using System.Text.Json.Serialization;
 namespace MirrorPulse.Adapter.Sdk;
 
 /// <summary>A source address is always scoped to one configured root.</summary>
+/// <remarks>Paths use forward slashes. An empty path addresses the root itself. Apply backend-specific path and root checks before accessing storage.</remarks>
 public sealed record AdapterFileAddress(string RootKey, string Path)
 {
     public void Validate()
@@ -20,6 +21,8 @@ public sealed record AdapterFileAddress(string RootKey, string Path)
 /// <summary>Both source revision and destination state are checked before mutation.</summary>
 public sealed record AdapterMutationPreconditions(string? ExpectedRevision = null, bool DestinationMustBeAbsent = true);
 
+/// <summary>A root-qualified mutation with an operation ID that survives transport retries.</summary>
+/// <remarks>A move carries both destination fields. A repeated operation ID must retain the same effective inputs.</remarks>
 public sealed record AdapterOperationRequest(
     Guid OperationId,
     string RootKey,
@@ -29,10 +32,13 @@ public sealed record AdapterOperationRequest(
     AdapterMutationPreconditions? Preconditions = null,
     bool IsDirectory = false);
 
+/// <summary>Creates one directory with the requested absence policy and a stable operation ID.</summary>
 public sealed record AdapterCreateDirectoryRequest(Guid OperationId, string RootKey, string Path, bool MustBeAbsent = true);
 
+/// <summary>Requests a bounded file range and, when supplied, pins it to the expected revision.</summary>
 public sealed record AdapterReadRequest(string RootKey, string Path, long Offset, long Length, string? ExpectedRevision = null);
 
+/// <summary>Returns the accepted operation ID, its root and the resulting revision when one exists.</summary>
 public sealed record AdapterOperationResult(Guid OperationId, string RootKey, string? Revision = null);
 
 /// <summary>Wire names are stable and independent of language-specific DTO names.</summary>
@@ -68,6 +74,8 @@ public static class AdapterProtocolJson
         return address;
     }
 
+    /// <summary>Validates the operation ID, address shapes, required destination and revision length.</summary>
+    /// <remarks>The Worker must separately authorize the roots and enforce the requested conditions before any backend effect.</remarks>
     public static void ValidateMutation(AdapterOperationRequest request, bool requiresDestination)
     {
         ArgumentNullException.ThrowIfNull(request);

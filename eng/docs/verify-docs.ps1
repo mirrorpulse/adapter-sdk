@@ -43,6 +43,11 @@ $indexHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'index.html') -Ra
 $gettingStartedHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'articles\getting-started.html') -Raw
 
 $apiHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'api\MirrorPulse.Adapter.Sdk.html') -Raw
+$channelApiHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'api\MirrorPulse.Adapter.Sdk.AdapterControlChannel.html') -Raw
+if ($channelApiHtml -notlike '*Reads the next control message or upload chunk*' -or
+    $channelApiHtml -notlike '*The caller must serialize writes*') {
+    throw 'The Worker channel API reference did not render the SDK XML summaries and remarks.'
+}
 foreach ($page in @($indexHtml, $gettingStartedHtml, $apiHtml)) {
     $back = $page.IndexOf('<a class="mp-home-link" href="https://mirrorpulse.github.io/" aria-label="Back to MirrorPulse home"', [StringComparison]::Ordinal)
     $brand = $page.IndexOf('<a class="navbar-brand"', [StringComparison]::Ordinal)

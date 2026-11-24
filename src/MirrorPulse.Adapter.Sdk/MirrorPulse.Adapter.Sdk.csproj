@@ -14,6 +14,8 @@
     <RepositoryType>git</RepositoryType>
     <PackageReadmeFile>README.md</PackageReadmeFile>
     <IncludeSymbols>false</IncludeSymbols>
+    <GenerateDocumentationFile Condition="'$(BuildAdapterReference)' == 'true'">true</GenerateDocumentationFile>
+    <NoWarn Condition="'$(BuildAdapterReference)' == 'true'">$(NoWarn);1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

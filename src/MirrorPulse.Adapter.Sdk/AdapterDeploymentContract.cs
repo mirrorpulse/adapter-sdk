@@ -29,6 +29,9 @@ public sealed record AdapterPackageUpdateOffer(
 public sealed record AdapterPackageUpdateResult(
     [property: JsonPropertyName("offer"), JsonIgnore(Condition = JsonIgnoreCondition.Never)] AdapterPackageUpdateOffer? Offer);
 
+/// <summary>Message names, capability identifiers and validators for deployment health and package update discovery.</summary>
+/// <remarks>Advertise either capability only after implementing its exchange. A Worker sends reports and
+/// responds to update requests only when the Host selects the corresponding capability.</remarks>
 public static class AdapterDeploymentContract
 {
     public const string StructuredHealthCapability = "structured-health";
@@ -38,6 +41,8 @@ public static class AdapterDeploymentContract
     public const string CheckUpdateMessage = "CheckAdapterUpdate";
     public const string UpdateOfferMessage = "AdapterUpdateOffer";
 
+    /// <summary>Checks that the health reason is supported and any field key is applicable in the signed form.</summary>
+    /// <remarks>Credential reasons can name a password field. Source and Worker failures are deployment-wide.</remarks>
     public static void ValidateHealthIssue(AdapterConfigurationForm form, AdapterHealthIssue issue)
     {
         ArgumentNullException.ThrowIfNull(form);
@@ -54,6 +59,8 @@ public static class AdapterDeploymentContract
         }
     }
 
+    /// <summary>Checks the issue count, uniqueness and field bindings of a replacement health report.</summary>
+    /// <remarks>Send an empty list when the issues clear.</remarks>
     public static void ValidateHealthReport(AdapterConfigurationForm form, AdapterHealthReport report)
     {
         ArgumentNullException.ThrowIfNull(form);
@@ -71,6 +78,7 @@ public static class AdapterDeploymentContract
     }
 
     /// <summary>Checks package identity, version ordering and safe location before treating an update offer as actionable.</summary>
+    /// <remarks>The Host separately verifies the downloaded package and its signature before registering the new version.</remarks>
     public static void ValidateUpdateOffer(AdapterPackageIdentity installed, AdapterPackageUpdateOffer offer)
     {
         ArgumentNullException.ThrowIfNull(installed);

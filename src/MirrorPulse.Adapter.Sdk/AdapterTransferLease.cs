@@ -1,6 +1,8 @@
 namespace MirrorPulse.Adapter.Sdk;
 
-/// <summary>A temporary transfer file is deleted on close, including cancellation.</summary>
+/// <summary>Owns a temporary transfer file that is deleted when its stream closes.</summary>
+/// <remarks>Create the lease inside the transfer-cache directory granted by the Host. Dispose it on
+/// success, failure and session shutdown. After a cancellation, await cleanup before sending the acknowledgement.</remarks>
 public sealed class AdapterTransferLease : IAsyncDisposable
 {
     private readonly CancellationTokenSource _cancellation = new();
@@ -16,9 +18,14 @@ public sealed class AdapterTransferLease : IAsyncDisposable
     }
 
     public string Path { get; }
+    /// <summary>The exclusive, readable and writable stream for the staged transfer.</summary>
     public FileStream Stream { get; }
+
+    /// <summary>The token signaled when <see cref="CancelAsync"/> is called.</summary>
     public CancellationToken CancellationToken => _cancellation.Token;
 
+    /// <summary>Signals receiving work and disposes the staged transfer.</summary>
+    /// <remarks>An accepted backend mutation has its own recovery contract.</remarks>
     public async ValueTask CancelAsync()
     {
         if (_disposed) return;

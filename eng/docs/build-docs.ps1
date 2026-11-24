@@ -12,6 +12,7 @@ $artifactRoot = Join-Path $repoRoot 'artifacts\docs'
 $workspaceRoot = Join-Path $artifactRoot 'workspace'
 $outputRoot = Join-Path $artifactRoot 'adapter'
 $articlesRoot = Join-Path $workspaceRoot 'articles'
+$metadataSourceRoot = Join-Path $workspaceRoot 'metadata-source'
 $manifestPath = Join-Path $outputRoot 'manifest.json'
 . (Join-Path $PSScriptRoot 'source-links.ps1')
 . (Join-Path $PSScriptRoot '../sdk-version-policy.ps1')
@@ -46,12 +47,19 @@ if (Test-Path $artifactRoot) {
     Remove-Item -LiteralPath $artifactRoot -Recurse -Force
 }
 New-Item -ItemType Directory -Path $articlesRoot -Force | Out-Null
+New-Item -ItemType Directory -Path $metadataSourceRoot -Force | Out-Null
 New-Item -ItemType Directory -Path $outputRoot -Force | Out-Null
 
 Push-Location $repoRoot
 try {
     Invoke-Checked 'dotnet' @('restore', 'MirrorPulse.Adapter.sln', '--locked-mode')
-    Invoke-Checked 'dotnet' @('build', 'MirrorPulse.Adapter.sln', '--configuration', $Configuration, '--no-restore', '--disable-build-servers', '-m:1')
+    Invoke-Checked 'dotnet' @('build', 'MirrorPulse.Adapter.sln', '--configuration', $Configuration,
+        '--no-restore', '--disable-build-servers', '-m:1', '-p:BuildAdapterReference=true')
+
+    $sdkBuild = Join-Path $repoRoot "src/MirrorPulse.Adapter.Sdk/bin/$Configuration/net10.0-windows"
+    foreach ($extension in @('dll', 'pdb', 'xml')) {
+        Copy-Item -LiteralPath (Join-Path $sdkBuild "MirrorPulse.Adapter.Sdk.$extension") -Destination $metadataSourceRoot
+    }
 
     $readmeText = Get-Content -LiteralPath (Join-Path $repoRoot 'README.md') -Raw
     $readmeText = $readmeText.Replace('](docs/','](articles/')
