@@ -55,6 +55,8 @@ try {
 
     $readmeText = Get-Content -LiteralPath (Join-Path $repoRoot 'README.md') -Raw
     $readmeText = $readmeText.Replace('](docs/','](articles/')
+    $apiReference = 'https://mirrorpulse.github.io/adapter/api/MirrorPulse.Adapter.Sdk.html'
+    $readmeText = $readmeText.Replace($apiReference, 'api/MirrorPulse.Adapter.Sdk.yml')
     $readmeText = $readmeText.Replace('](spec/worker-v2.md)','](https://github.com/mirrorpulse/adapter-sdk/blob/main/spec/worker-v2.md)')
     $readmeText = $readmeText.Replace('](global.json)','](https://github.com/mirrorpulse/adapter-sdk/blob/main/global.json)')
     $readmeText = $readmeText.Replace('](CONTRIBUTING.md)','](https://github.com/mirrorpulse/adapter-sdk/blob/main/CONTRIBUTING.md)')
@@ -67,7 +69,9 @@ try {
         $relativePath = [System.IO.Path]::GetRelativePath($sourceDocsRoot, $sourceFile.FullName)
         $destination = Join-Path $articlesRoot $relativePath
         New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force | Out-Null
-        Copy-Item -LiteralPath $sourceFile.FullName -Destination $destination -Force
+        $content = Get-Content -LiteralPath $sourceFile.FullName -Raw
+        $apiPath = [IO.Path]::GetRelativePath((Split-Path $destination -Parent), (Join-Path $workspaceRoot 'api/MirrorPulse.Adapter.Sdk.yml')).Replace('\', '/')
+        Set-Utf8File $destination $content.Replace($apiReference, $apiPath)
     }
 
     $toc = @'
@@ -82,14 +86,18 @@ try {
       href: articles/getting-started.md
     - name: Package configuration
       href: articles/package-configuration.md
-    - name: SDK trusted publishing
-      href: articles/nuget-publishing.md
+    - name: Implement a Worker
+      href: articles/implementing-a-worker.md
+    - name: Test and publish an Adapter
+      href: articles/test-and-publish.md
     - name: Original directory admission
       href: articles/original-directory-admission-wire.md
     - name: Original directory retirement
       href: articles/original-directory-retirement-wire.md
     - name: Atomic directory deletion
       href: articles/atomic-original-directory-deletion.md
+    - name: SDK trusted publishing
+      href: articles/nuget-publishing.md
 - name: API reference
   href: api/toc.yml
 '@

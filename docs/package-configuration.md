@@ -2,6 +2,22 @@
 
 SDK 1.0 packages use manifest schema `2`. Keep one `rootDefinitions` item and set `instancePolicy.maximumRootDefinitions` to `1`. One Adapter package can still be installed in multiple deployments. Use a canonical lowercase Adapter ID and a three-part stable or `-preview.N` package version.
 
+## Package identity and files
+
+Start from the template's `eng/release-manifest.json`. The package ID identifies
+the Adapter across versions. The root key identifies its declared root and must
+stay stable for deployments that will upgrade in place. The root label and
+directory name supply presentation defaults. The actual deployment display name
+is saved by the Host. Use separate IDs for separate Adapters, even if they share
+a storage library.
+
+Package the Worker entrypoints and their private runtime under the matching
+`win-x64` and `win-arm64` manifest keys. Declare protocol 2 and the capabilities
+the backend actually supports. Declaring a package capability does not select
+a wire feature. The Worker still negotiates wire capabilities at startup.
+
+## Localized presentation and forms
+
 Use `presentation` for the package title, description, logo, and form. These are separate from the stable Adapter ID.
 
 ```json
@@ -52,6 +68,28 @@ The separate form is declarative XML. Its supported layout items are heading, pa
 Use stable field keys, option IDs, and callback IDs independent of display language. The form requires a `true` or `false` value for each field's `required` attribute. Defaults are optional. Password fields cannot declare defaults. A single choice default names one option ID. Multiple choice defaults use comma-separated IDs and an empty default selects nothing. Check box defaults are `true` or `false`.
 
 `AdapterPackageMetadata.Read` validates the versioned package metadata against the signed file inventory. `AdapterConfigurationForm.Read` validates the layout, field bindings and callback write declarations. `AdapterConfigurationTranslations.Read` verifies the fallback string table and resolves display labels. These methods operate on parsed metadata and package data supplied by the caller. The Host validates the signature and continues to own configuration, authorization transactions, validation and persistence. A callback's `write` list is the maximum set of fields the Host may accept from that callback.
+
+### Settings and credentials
+
+The Host renders the form and owns Save. Ordinary controls contribute values
+under their field keys. Choice values use option IDs, even when their labels
+change with the language. Multi-choice selects comma-separated IDs and a check
+box contributes `true` or `false`. Validate backend-specific combinations,
+such as credentials required only for a selected authentication mode, when
+reading settings. Keep help text and validation tied to field keys.
+
+A password control is a secret field. For a one-root deployment, read its
+opaque reference from `Ready.CredentialBindings`, indexed by field key, and
+use a correlated credential request on the established channel. A reference
+is an identifier, so sending it as a password will fail. Keep returned secret
+values in memory only and keep them out of config files, diagnostics and error
+payloads. The Worker can report a missing or expired password with structured
+health if it implements that capability.
+
+Keep existing field and choice IDs stable across updates. Changing a label
+keeps the saved value. Introducing a new required field can leave an existing
+deployment needing user input. Exercise that case and use a field-keyed health
+issue where the Worker can identify the missing value.
 
 ## Authorization, health and updates
 

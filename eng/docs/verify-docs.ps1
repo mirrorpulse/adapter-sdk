@@ -20,7 +20,9 @@ $requiredFiles = @(
     'public\main.css',
     'public\main.js',
     'api\MirrorPulse.Adapter.Sdk.html',
-    'articles\getting-started.html'
+    'articles\getting-started.html',
+    'articles\implementing-a-worker.html',
+    'articles\test-and-publish.html'
 )
 foreach ($requiredFile in $requiredFiles) {
     $requiredPath = Join-Path $resolvedRoot $requiredFile
@@ -30,7 +32,8 @@ foreach ($requiredFile in $requiredFiles) {
 }
 
 $tocHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'toc.html') -Raw
-foreach ($navigationMarker in @('title="Overview"', '>Guides</a>', '>API reference</a>')) {
+foreach ($navigationMarker in @('title="Overview"', '>Guides</a>', '>API reference</a>',
+    'articles/implementing-a-worker.html', 'articles/test-and-publish.html')) {
     if ($tocHtml -notlike "*$navigationMarker*") {
         throw "Documentation navigation is missing expected marker: $navigationMarker"
     }

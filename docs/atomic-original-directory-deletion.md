@@ -1,11 +1,17 @@
 # Atomic original directory deletion
 
+Use this optional path only when the backend can make every original removal
+and its effect receipt visible in one durable transaction. If it can commit
+only one child at a time, see [admission and child effects](original-directory-admission-wire.md).
+
 A backend that can commit a whole admitted subtree in one native transaction
 can offer `atomic-original-directory-delete-v1`, in addition to
 `original-directory-admission-v1`. This does not enable the separate individual
 child or final-directory effect capabilities.
-No default handshake enables it. `DeleteOriginalDirectoryAtomically` returns
+Opt in during negotiation. `DeleteOriginalDirectoryAtomically` returns
 `OriginalDirectoryDeletedAtomically`; ordinary `MutationComplete` is insufficient.
+
+## Validate and reserve the admitted plan
 
 The request includes the complete original admission request and backend
 admission, and binds their fingerprints to the Host's sealed manifest. All
@@ -22,6 +28,8 @@ before source mutation. The same admission or any of its operation IDs cannot be
 rebound to another plan, manifest or individual-effect execution. Capability
 negotiation, hashes and SDK shape checks cannot establish these native facts.
 
+## Commit, reply and recover
+
 All original removals and one immutable receipt commit together. No child result
 is returned or counted as accepted before the batch commits. The receipt retains
 every operation ID, original address and original generation in the authorized
@@ -35,6 +43,13 @@ restart must recover the identical receipt without opening or mutating a later
 occupant at the original path. The backend refuses changed authorization and
 missing, corrupt or incompatible retained evidence. Host acknowledgement follows
 durable acceptance of the full receipt and remains a separate product step.
+
+For a backend qualification, interrupt execution once before commit and once
+after commit but before replying. Before commit, verify the entire original
+inventory and the absence of an accepted receipt. After commit, restart and
+replay the unchanged request. Verify that its receipt is identical and that
+a later object created at an old path is untouched. Also replay with a changed
+manifest and verify that the backend refuses it without applying any effects.
 
 `AdapterAtomicDirectoryDeletionWire` checks protocol, both capabilities,
 request/session/instance correlation, a 1 MiB body limit and exact reply membership.
