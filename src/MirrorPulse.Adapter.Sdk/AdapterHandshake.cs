@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace MirrorPulse.Adapter.Sdk;
 
@@ -9,7 +10,15 @@ public sealed record AdapterHello(AdapterVersionRange SupportedVersions, IReadOn
 public sealed record AdapterRootBinding(string RootKey, bool Enabled, IReadOnlyDictionary<string, string> Configuration);
 
 public sealed record AdapterReady(int SelectedVersion, IReadOnlyList<string> Capabilities,
-    IReadOnlyList<AdapterRootBinding> Roots, IReadOnlyDictionary<string, string> Configuration);
+    IReadOnlyList<AdapterRootBinding> Roots, IReadOnlyDictionary<string, string> Configuration)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool ConfigurationOnly { get; init; }
+
+    /// <summary>Opaque Host credential references indexed by signed password field key.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, string>? CredentialBindings { get; init; }
+}
 
 public sealed record AdapterNegotiation(int? SelectedVersion, string? ErrorCode)
 {
@@ -54,10 +63,25 @@ public static class AdapterHandshake
         return AdapterProtocolJson.Decode<AdapterHello>(System.Text.Encoding.UTF8.GetBytes(payload.GetRawText()));
     }
 
-    public static void ValidateReady(AdapterReady ready, AdapterHello offer)
+    public static void ValidateReady(AdapterReady ready, AdapterHello offer) =>
+        ValidateReady(ready, offer, configurationOnly: false);
+
+    /// <summary>Checks Ready against the session mode supplied in the Worker launch arguments.</summary>
+    public static void ValidateReady(AdapterReady ready, AdapterHello offer, bool configurationOnly)
     {
         ArgumentNullException.ThrowIfNull(ready);
         ArgumentNullException.ThrowIfNull(offer);
+        if (ready.ConfigurationOnly != configurationOnly)
+            throw new InvalidDataException("ReadySessionModeMismatch");
+        if (configurationOnly)
+        {
+            if (ready.SelectedVersion != 2 || ready.Roots is not { Count: 0 } || ready.Configuration is null ||
+                ready.Capabilities is not { Count: 1 } || ready.Capabilities[0] != AdapterConfigurationCallbackContract.Capability ||
+                offer.SupportedVersions is not { Minimum: >= 1 and <= 2, Maximum: >= 2 } ||
+                offer.Capabilities?.Contains(AdapterConfigurationCallbackContract.Capability, StringComparer.Ordinal) is not true)
+                throw new InvalidDataException("InvalidConfigurationOnlyReady");
+            return;
+        }
         AdapterNegotiation result = Negotiate(offer, ready.Roots?.Count ?? 0,
             new(ready.SelectedVersion, ready.SelectedVersion));
         if (!result.Accepted) throw new InvalidDataException(result.ErrorCode);

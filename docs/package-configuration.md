@@ -55,6 +55,29 @@ Use stable field keys, option IDs, and callback IDs independent of display langu
 
 ## Authorization, health and updates
 
-Workers that support configuration callbacks advertise `configuration-callbacks`. The Host uses the start, poll and cancel message names from `AdapterConfigurationCallbackContract` on the authenticated deployment's session. The invocation ID and expiration come from the Host. A pending response can contain an HTTPS authorization page. An Adapter that runs its own UI can return pending without a URL. A successful response proposes values only for fields listed by the installed form. The Host validates the edition and deployment binding, persists the accepted writes and stores passwords through its credential broker.
+### Configuration-only Worker startup
 
-Use `AdapterHealthIssue` with the `structured-health` capability to identify configuration and credential issues. Include an exact form field key when known. Keep transport or Worker failures separate from field binding. A Worker that supports updates can advertise `update-discovery` and return an `AdapterPackageUpdateOffer` for its own Adapter ID with a strictly newer version and an HTTPS location. The Host still validates the downloaded package and its signature and asks the user which deployments to update.
+MirrorPulse can start the signed Worker before any deployment exists and can use the same mode to reauthorize an existing deployment. Parse the usual `AdapterWorkerProcessArguments` and inspect `ConfigurationOnly`. In that mode, advertise `AdapterConfigurationCallbackContract.Capability` with protocol 2, then validate the Host's `Ready` with that launch mode. The accepted `Ready` has zero root bindings and includes the settings available for this authorization. Keep the normal sync handshake and startup path when `ConfigurationOnly` is false.
+
+```csharp
+var arguments = AdapterWorkerProcessArguments.Parse(args);
+var offer = new AdapterHello(new(2, 2), arguments.ConfigurationOnly
+    ? [AdapterConfigurationCallbackContract.Capability]
+    : AdapterHandshake.V2Capabilities);
+
+// Send Hello and decode its matching Ready response as AdapterReady.
+AdapterHandshake.ValidateReady(ready, offer, arguments.ConfigurationOnly);
+channel.SelectProtocol(ready.SelectedVersion);
+```
+
+In configuration-only mode, handle `ConfigurationCallbackStart`, `ConfigurationCallbackPoll`, `ConfigurationCallbackCancel`, and the Host's `Stop`. Read callback messages with `AdapterConfigurationCallbackContract.ReadRequest` after reading the frame from `AdapterControlChannel`. Track the invocation ID, callback ID and expiry in memory for this session. Send `ConfigurationCallbackResult` as a response with the matching frame request ID. A pending response can include an HTTPS authorization page. A Worker that owns its own interaction window can return pending without a URL. A successful response proposes values only for fields listed in the callback's signed `write` list. Cancel ends the interaction and discards proposed writes.
+
+`AdapterReady.CredentialBindings` indexes opaque Host credential references by password field key. For an existing deployment, a Worker can use a supplied reference with a `CredentialRequest` and read its matching `CredentialResponse` on the authenticated channel. Password values stay out of ordinary configuration and logs. Use the temporary cache directories supplied by the Host and keep authorization state in memory. MirrorPulse accepts authorized writes when the user saves the form, stores passwords in its credential store and ends the temporary Worker session. Send file operations, directory state and change notifications from the normal sync session.
+
+### Health and updates
+
+Offer `AdapterDeploymentContract.StructuredHealthCapability` when the Worker can identify configuration and credential issues. If the ordinary deployment's `Ready` selects that capability, send the complete `AdapterHealthReport` as a protocol 2 notification with `AdapterDeploymentContract.HealthReportMessage`, a fresh frame request ID, and `isResponse: false`. It can arrive before `Connected` when a credential blocks startup. Replace the report as conditions change, and send an empty issue list after recovery. Include the exact signed form field key when known. Credential issues can name password fields. Source and Worker failures carry no field. Keep the report within 16 unique issues and keep arbitrary diagnostic text and credential values out of it.
+
+Update checks are optional. A Worker can include `update-discovery` in its protocol 2 `Hello` and check that `Ready` selects it. After `Connected`, the Host can send `CheckAdapterUpdate` with an empty object. Reply with `AdapterUpdateOffer` using the same request, instance and session identifiers. This exchange applies to the selected deployment and carries no `rootKey`.
+
+Serialize `AdapterPackageUpdateResult` as the response payload. Set `Offer` to `null` when the selected package is current. Otherwise, offer the same Adapter ID, a strictly newer version, and an HTTPS URL or the absolute path of a local Windows `.mpadapter` file, represented as a `file:` URI. HTTPS packages carry an embedded signature. The Host asks the user before acquiring the package and checks its signature and identity before registering the version. Users can then select that version for each deployment.

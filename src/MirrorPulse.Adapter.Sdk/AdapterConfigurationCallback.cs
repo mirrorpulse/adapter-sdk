@@ -36,6 +36,22 @@ public static class AdapterConfigurationCallbackContract
     public const string CancelMessage = "ConfigurationCallbackCancel";
     public const string ResultMessage = "ConfigurationCallbackResult";
 
+    /// <summary>Reads a start, poll or cancel request on an already authenticated configuration-only channel.</summary>
+    public static AdapterConfigurationCallbackRequest ReadRequest(AdapterControlFrame frame, DateTimeOffset observedAt)
+    {
+        ArgumentNullException.ThrowIfNull(frame);
+        if (frame.ProtocolVersion != 2 || frame.IsResponse || frame.RequestId == Guid.Empty ||
+            frame.MessageType is not (StartMessage or PollMessage or CancelMessage))
+            throw new InvalidDataException("The frame is not an authorization request.");
+
+        var request = AdapterProtocolJson.Decode<AdapterConfigurationCallbackRequest>(
+            System.Text.Encoding.UTF8.GetBytes(frame.Payload.GetRawText()));
+        if (request.InvocationId == Guid.Empty || request.ExpiresAt <= observedAt || string.IsNullOrEmpty(request.CallbackId))
+            throw new InvalidDataException("The authorization request is invalid or expired.");
+        AdapterConfigurationForm.RequireIdentifier(request.CallbackId);
+        return request;
+    }
+
     /// <summary>
     /// Checks a proposed response after the Host verifies its edition, deployment and Worker session.
     /// The Host applies permitted writes atomically and stores passwords as credentials.

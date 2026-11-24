@@ -82,6 +82,23 @@ Ready repeats Hello's request ID. Connected is a Worker event (`isResponse:false
 with a fresh request ID. Stop is a Host command with an empty payload; the Worker
 releases pending leases and exits. There is no required Stop acknowledgment.
 
+## Deployment health
+
+A Worker offering `structured-health` can send `AdapterHealthReport` only
+after the Host selects that capability on the ordinary deployment session.
+Its v2 envelope uses a fresh request ID and `isResponse: false`. The payload
+has an `issues` array with up to 16 unique items. Each item has a `reason`
+and an optional `fieldKey` from the signed form. A report replaces the
+previous report for that session, including when the array is empty.
+
+Use `MissingConfiguration` or `InvalidConfiguration` for form problems.
+`MissingCredential` and `ExpiredCredential` can name a password field.
+`SourceUnavailable` and `WorkerFailure` have no field key. The Worker can
+send a report before `Connected` when it cannot initialize the source.
+The Host displays labels from the installed form and discards free-form
+diagnostic text. A deployment or configuration revision change invalidates
+health reported for the earlier configuration.
+
 ## File command and response table
 
 All rows below require the common root/path address unless explicitly stated.

@@ -2,7 +2,7 @@
 param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
-    [string]$Version = '1.0.0-preview.4'
+    [string]$Version
 )
 
 $ErrorActionPreference = 'Stop'
@@ -14,6 +14,8 @@ $outputRoot = Join-Path $artifactRoot 'adapter'
 $articlesRoot = Join-Path $workspaceRoot 'articles'
 $manifestPath = Join-Path $outputRoot 'manifest.json'
 . (Join-Path $PSScriptRoot 'source-links.ps1')
+. (Join-Path $PSScriptRoot '../sdk-version-policy.ps1')
+$Version = if ($Version) { Get-SdkReleaseVersion $Version } else { Get-SdkProjectReleaseVersion }
 
 function Set-Utf8File {
     param(

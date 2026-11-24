@@ -16,12 +16,24 @@ public enum AdapterHealthReason
 /// <summary>A machine-readable reason for an unhealthy deployment. A form field can be identified when known.</summary>
 public sealed record AdapterHealthIssue(AdapterHealthReason Reason, string? FieldKey = null);
 
-/// <summary>A proposed package download. The Host decides whether to fetch or install it.</summary>
-public sealed record AdapterPackageUpdateOffer(string AdapterId, string Version, Uri Location);
+/// <summary>The current issues for one negotiated deployment session. An empty list clears previous issues.</summary>
+public sealed record AdapterHealthReport(IReadOnlyList<AdapterHealthIssue> Issues);
+
+/// <summary>A proposed package at an HTTPS URL or a local Windows file location.</summary>
+public sealed record AdapterPackageUpdateOffer(
+    [property: JsonPropertyName("adapterId")] string AdapterId,
+    [property: JsonPropertyName("version")] string Version,
+    [property: JsonPropertyName("location")] Uri Location);
+
+/// <summary>The response to a deployment-wide update check. A null offer means the selected version is current.</summary>
+public sealed record AdapterPackageUpdateResult(
+    [property: JsonPropertyName("offer"), JsonIgnore(Condition = JsonIgnoreCondition.Never)] AdapterPackageUpdateOffer? Offer);
 
 public static class AdapterDeploymentContract
 {
     public const string StructuredHealthCapability = "structured-health";
+    public const string HealthReportMessage = "AdapterHealthReport";
+    public const int MaximumHealthIssues = 16;
     public const string UpdateDiscoveryCapability = "update-discovery";
     public const string CheckUpdateMessage = "CheckAdapterUpdate";
     public const string UpdateOfferMessage = "AdapterUpdateOffer";
@@ -42,15 +54,31 @@ public static class AdapterDeploymentContract
         }
     }
 
+    public static void ValidateHealthReport(AdapterConfigurationForm form, AdapterHealthReport report)
+    {
+        ArgumentNullException.ThrowIfNull(form);
+        ArgumentNullException.ThrowIfNull(report);
+        if (report.Issues is null || report.Issues.Count > MaximumHealthIssues)
+            throw new InvalidDataException("The deployment health report exceeds its issue limit.");
+
+        var unique = new HashSet<AdapterHealthIssue>();
+        foreach (AdapterHealthIssue issue in report.Issues)
+        {
+            if (issue is null || !unique.Add(issue))
+                throw new InvalidDataException("The deployment health report contains an empty or repeated issue.");
+            ValidateHealthIssue(form, issue);
+        }
+    }
+
     /// <summary>Checks package identity, version ordering and safe location before treating an update offer as actionable.</summary>
     public static void ValidateUpdateOffer(AdapterPackageIdentity installed, AdapterPackageUpdateOffer offer)
     {
         ArgumentNullException.ThrowIfNull(installed);
         ArgumentNullException.ThrowIfNull(offer);
         if (!AdapterPackageMetadata.IsCanonicalId(installed.AdapterId) || offer.AdapterId != installed.AdapterId ||
-            offer.Location is null || !IsExternalHttpsUri(offer.Location))
+            offer.Location is null || !IsPackageLocation(offer.Location))
         {
-            throw new InvalidDataException("An update offer must name the installed Adapter and an HTTPS download without embedded credentials.");
+            throw new InvalidDataException("An update offer must name the installed Adapter and provide an HTTPS URL or an absolute local Windows .mpadapter path.");
         }
 
         var (oldVersion, oldPreview) = AdapterPackageMetadata.ParseVersion(installed.Version);
@@ -64,4 +92,12 @@ public static class AdapterDeploymentContract
 
     internal static bool IsExternalHttpsUri(Uri uri) => uri.IsAbsoluteUri && uri.Scheme == Uri.UriSchemeHttps &&
         uri.Host.Length != 0 && uri.UserInfo.Length == 0 && uri.OriginalString.Length <= 2048;
+
+    private static bool IsPackageLocation(Uri uri) => uri.IsAbsoluteUri && uri.OriginalString.Length <= 2048 &&
+        !uri.OriginalString.Any(char.IsControl) && uri.Fragment.Length == 0 &&
+        ((IsExternalHttpsUri(uri) && !uri.IsLoopback) ||
+        (uri.IsFile && !uri.IsUnc && uri.Host.Length == 0 && uri.Query.Length == 0 &&
+            uri.LocalPath is { Length: >= 4 } path && char.IsAsciiLetter(path[0]) && path[1] == ':' &&
+            path[2] is '\\' or '/' && !path.AsSpan(2).Contains(':') && !path.Any(char.IsControl) &&
+            string.Equals(Path.GetExtension(path), ".mpadapter", StringComparison.OrdinalIgnoreCase)));
 }

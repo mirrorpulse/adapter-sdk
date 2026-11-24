@@ -138,17 +138,23 @@ public sealed class AdapterControlChannel : IAsyncDisposable
 
 public sealed record AdapterWorkerProcessArguments(Guid InstanceId, Guid WorkerSessionId, string PipeName)
 {
+    public const string ConfigurationOnlyOption = "--configuration-only";
+
+    /// <summary>Indicates a temporary session that may handle authorization before a sync root is configured.</summary>
+    public bool ConfigurationOnly { get; init; }
+
     public static AdapterWorkerProcessArguments Parse(IReadOnlyList<string> args)
     {
         ArgumentNullException.ThrowIfNull(args);
-        if (args.Count != 6 || args[0] != "--instance-id" || args[2] != "--worker-session-id" ||
+        bool configurationOnly = args.Count == 7 && args[6] == ConfigurationOnlyOption;
+        if ((args.Count != 6 && !configurationOnly) || args[0] != "--instance-id" || args[2] != "--worker-session-id" ||
             args[4] != "--pipe-name" || !Guid.TryParse(args[1], out Guid instanceId) ||
             !Guid.TryParse(args[3], out Guid sessionId) || instanceId == Guid.Empty ||
             sessionId == Guid.Empty || string.IsNullOrWhiteSpace(args[5]))
         {
-            throw new ArgumentException("Expected --instance-id, --worker-session-id, and --pipe-name.", nameof(args));
+            throw new ArgumentException("Expected --instance-id, --worker-session-id, --pipe-name, and optional --configuration-only.", nameof(args));
         }
 
-        return new(instanceId, sessionId, args[5]);
+        return new(instanceId, sessionId, args[5]) { ConfigurationOnly = configurationOnly };
     }
 }
