@@ -24,7 +24,15 @@ if ($CheckDestination) { return }
 & gh api "repos/$($manifest.repository)/git/refs" -f "ref=refs/tags/$($manifest.tag)" -f "sha=$source" --silent
 if ($LASTEXITCODE -ne 0) { throw 'SDK tag creation failed.' }
 $assets = @(Get-ChildItem -LiteralPath $AssetDirectory -File | ForEach-Object FullName)
-$channelOptions = if ($preview) { @('--prerelease', '--latest=false') } else { @('--latest') }
+$channelOptions = @(
+    if ($preview) {
+        '--prerelease'
+        '--latest=false'
+    }
+    else {
+        '--latest=true'
+    }
+)
 & gh release create $manifest.tag @assets --repo $manifest.repository --verify-tag `
     --title "MirrorPulse Adapter SDK $($manifest.version)" --generate-notes @channelOptions
 if ($LASTEXITCODE -ne 0) { throw 'SDK release creation failed. Recover the reserved tag from the original candidate.' }
