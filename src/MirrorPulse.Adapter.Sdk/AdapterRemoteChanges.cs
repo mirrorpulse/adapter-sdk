@@ -38,6 +38,8 @@ public sealed record AdapterRemoteChange(
     AdapterRemoteMetadata? Metadata = null,
     ReadOnlyMemory<byte> CursorAfter = default);
 
+/// <summary>An ordered batch with opaque checkpoints before and after its changes.</summary>
+/// <remarks>Preserve the cursor scope for the deployment and keep change IDs and checkpoints stable when replaying the batch.</remarks>
 public sealed record AdapterRemoteChangeBatch(
     string BatchId,
     ReadOnlyMemory<byte> InitialCursor,

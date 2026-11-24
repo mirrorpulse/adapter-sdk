@@ -3,7 +3,7 @@
     {
       "src": [
         {
-          "src": "../../src/MirrorPulse.Adapter.Sdk/bin/Release/net10.0-windows",
+          "src": "../../artifacts/docs/workspace/metadata-source",
           "files": [
             "MirrorPulse.Adapter.Sdk.dll"
           ]

@@ -1,9 +1,10 @@
 # Original directory retirement messages
 
-This optional draft extends the original-directory evidence types with a typed
-protocol-v2 request and response boundary. It does not implement a backend,
-enable a capability in the default handshake, or authorize journal ACK. The
-shipping sample Worker remains unsupported for these messages.
+This optional protocol-v2 exchange is the final step after a qualified backend
+has verified the original subtree and recorded its child effects. The SDK
+defines the request and response. Backend support and production Host
+qualification are required before it can acknowledge an original operation.
+The sample Worker does not implement this capability.
 
 The negotiated capability is `original-directory-effects-v1`. The new request
 message is `RetireOriginalDirectory`; its successful response message is
@@ -65,6 +66,16 @@ and compare the exact receipt before advancing its ledger or acknowledging an
 original journal operation. Unsupported backends leave the original pending.
 The bounded request does not introduce manifest paging; an oversized admission
 requires explicit refusal rather than truncation.
+
+## Verify the final effect
+
+Start with an [admitted directory](original-directory-admission-wire.md) and
+retain its original witnesses. Test a successful retirement with zero
+children, another with several recorded child effects, and rejection after an
+unrelated writer changes a parent. Drop the reply after the native effect
+commits, restart the Worker, and retry with the original evidence. The same
+receipt should be recovered. An unrelated object at the old name must remain
+outside the operation.
 
 The contract executable exercises encoded control-frame round trips, complete
 child chains, exact parent predecessors, Delete and cross-root Move responses,

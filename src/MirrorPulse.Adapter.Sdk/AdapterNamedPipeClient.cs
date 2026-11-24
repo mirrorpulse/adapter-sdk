@@ -3,6 +3,7 @@ using System.IO.Pipes;
 
 namespace MirrorPulse.Adapter.Sdk;
 
+/// <summary>Wire limits that apply to both control envelopes and binary frame payloads.</summary>
 public static class AdapterPipeFrameLimits
 {
     public const int LengthPrefixBytes = 4;
@@ -10,8 +11,9 @@ public static class AdapterPipeFrameLimits
 }
 
 /// <summary>
-/// Template SDK client for the current-user MirrorPulse Named Pipe protocol.
+/// Connects a Worker to the local named pipe opened by the MirrorPulse Host.
 /// </summary>
+/// <remarks>Use <see cref="AdapterControlChannel"/> to add the Worker session and protocol checks to framed I/O.</remarks>
 public sealed class AdapterNamedPipeClient : IAsyncDisposable
 {
     private readonly NamedPipeClientStream _stream;
@@ -21,6 +23,12 @@ public sealed class AdapterNamedPipeClient : IAsyncDisposable
         _stream = stream;
     }
 
+    /// <summary>Opens a duplex connection to the supplied local named pipe.</summary>
+    /// <param name="pipeName">The pipe name supplied in the Worker launch arguments.</param>
+    /// <param name="timeout">The maximum connection wait, or <see cref="Timeout.InfiniteTimeSpan"/>.</param>
+    /// <param name="cancellationToken">Cancels the connection attempt.</param>
+    /// <returns>The connected client. Dispose it when the Worker session ends.</returns>
+    /// <exception cref="ArgumentOutOfRangeException">The timeout is negative or above the supported millisecond range.</exception>
     public static async Task<AdapterNamedPipeClient> ConnectAsync(
         string pipeName,
         TimeSpan timeout,
@@ -45,6 +53,8 @@ public sealed class AdapterNamedPipeClient : IAsyncDisposable
         }
     }
 
+    /// <summary>Writes a little-endian length prefix and one framed payload.</summary>
+    /// <remarks>The caller serializes writes. If a write is interrupted, close the session before sending another frame.</remarks>
     public async ValueTask WriteFrameAsync(ReadOnlyMemory<byte> payload, CancellationToken cancellationToken = default)
     {
         if (payload.Length > AdapterPipeFrameLimits.MaxPayloadBytes)
@@ -59,6 +69,9 @@ public sealed class AdapterNamedPipeClient : IAsyncDisposable
         await _stream.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>Reads one complete bounded frame, including when the pipe divides it across reads.</summary>
+    /// <exception cref="InvalidDataException">The frame length is above the SDK limit.</exception>
+    /// <exception cref="EndOfStreamException">The pipe closed before a complete frame arrived.</exception>
     public async ValueTask<byte[]> ReadFrameAsync(CancellationToken cancellationToken = default)
     {
         var prefix = new byte[AdapterPipeFrameLimits.LengthPrefixBytes];

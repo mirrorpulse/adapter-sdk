@@ -20,7 +20,9 @@ $requiredFiles = @(
     'public\main.css',
     'public\main.js',
     'api\MirrorPulse.Adapter.Sdk.html',
-    'articles\getting-started.html'
+    'articles\getting-started.html',
+    'articles\implementing-a-worker.html',
+    'articles\test-and-publish.html'
 )
 foreach ($requiredFile in $requiredFiles) {
     $requiredPath = Join-Path $resolvedRoot $requiredFile
@@ -30,7 +32,8 @@ foreach ($requiredFile in $requiredFiles) {
 }
 
 $tocHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'toc.html') -Raw
-foreach ($navigationMarker in @('title="Overview"', '>Guides</a>', '>API reference</a>')) {
+foreach ($navigationMarker in @('title="Overview"', '>Guides</a>', '>API reference</a>',
+    'articles/implementing-a-worker.html', 'articles/test-and-publish.html')) {
     if ($tocHtml -notlike "*$navigationMarker*") {
         throw "Documentation navigation is missing expected marker: $navigationMarker"
     }
@@ -40,8 +43,13 @@ $indexHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'index.html') -Ra
 $gettingStartedHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'articles\getting-started.html') -Raw
 
 $apiHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'api\MirrorPulse.Adapter.Sdk.html') -Raw
+$channelApiHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'api\MirrorPulse.Adapter.Sdk.AdapterControlChannel.html') -Raw
+if ($channelApiHtml -notlike '*Reads the next control message or upload chunk*' -or
+    $channelApiHtml -notlike '*The caller must serialize writes*') {
+    throw 'The Worker channel API reference did not render the SDK XML summaries and remarks.'
+}
 foreach ($page in @($indexHtml, $gettingStartedHtml, $apiHtml)) {
-    $back = $page.IndexOf('<a class="cf-github-link nav-link" href="https://mirrorpulse.github.io/" aria-label="MirrorPulse home"', [StringComparison]::Ordinal)
+    $back = $page.IndexOf('<a class="mp-home-link" href="https://mirrorpulse.github.io/" aria-label="Back to MirrorPulse home"', [StringComparison]::Ordinal)
     $brand = $page.IndexOf('<a class="navbar-brand"', [StringComparison]::Ordinal)
     if ($back -lt 0 -or $brand -le $back) {
         throw 'The MirrorPulse home link must precede the brand on the home, guide and API pages.'
@@ -67,6 +75,9 @@ if ($contributionPages | Where-Object { $_.Text -like '*artifacts/docs/workspace
 $themeCss = Get-Content -LiteralPath (Join-Path $resolvedRoot 'public\main.css') -Raw
 if ($themeCss -notlike '*--cf-radius-xl*') {
     throw 'Documentation custom theme marker --cf-radius-xl is missing.'
+}
+if ($themeCss -notlike '*.mp-home-link:focus-visible*') {
+    throw 'The MirrorPulse home link keyboard focus style is missing.'
 }
 $navigationScript = Get-Content -LiteralPath (Join-Path $resolvedRoot 'public\main.js') -Raw
 if ($navigationScript -notlike '*cf-github-link*' -or

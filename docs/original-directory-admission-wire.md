@@ -1,5 +1,13 @@
 # Original directory admission and child effects
 
+Use this protocol when a backend can identify the complete original subtree,
+observe native generations, and verify each child effect against a durable
+admission. Workers with only ordinary file commands can leave this capability
+unselected. Read [Implement a Worker](implementing-a-worker.md) for the shared
+session and operation rules.
+
+## Admit the original plan
+
 A Worker negotiates `original-directory-admission-v1` before accepting
 `AdmitOriginalDirectory`, which returns `OriginalDirectoryAdmitted`.
 Individual `ApplyOriginalChild` / `OriginalChildApplied` exchanges additionally
@@ -23,6 +31,8 @@ The admission fingerprint covers those observations. Duplicate requests recover
 that same admission. A changed request or incomplete inventory is refused.
 The backend retains the stable operation claims across admissions.
 
+## Apply a child and extend the parent history
+
 Each file effect request retains the admission and Host manifest fingerprints,
 original operation and generation, original parent witnesses and the previously
 accepted receipt for each affected parent. Its fingerprint includes these
@@ -38,6 +48,15 @@ starts from the admitted revision. Later effects extend the previously accepted
 receipt. A deletion's accepted revision is null. The backend commits the native
 effect and durable receipt together and returns that receipt after a lost reply
 or process restart. The Host persists the same receipt before advancing its plan.
+
+For example, a plan deleting `incoming/first.txt`, then
+`incoming/second.txt`, then `incoming` starts the first child at the admitted
+revision of `incoming`. Its receipt accounts for the first parent revision
+change. The second child must extend that receipt, so a later version caused
+by an unrelated writer cannot become its starting point. The final retirement
+uses both accepted children and their resulting revision.
+
+## Integrate and exercise recovery
 
 `AdapterOriginalDirectoryWire` validates protocol, negotiated capabilities,
 bounded payloads and request/session/instance correlation. Each body is limited
