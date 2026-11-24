@@ -41,7 +41,7 @@ $gettingStartedHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'article
 
 $apiHtml = Get-Content -LiteralPath (Join-Path $resolvedRoot 'api\MirrorPulse.Adapter.Sdk.html') -Raw
 foreach ($page in @($indexHtml, $gettingStartedHtml, $apiHtml)) {
-    $back = $page.IndexOf('<a class="cf-github-link nav-link" href="https://mirrorpulse.github.io/" aria-label="MirrorPulse home"', [StringComparison]::Ordinal)
+    $back = $page.IndexOf('<a class="mp-home-link" href="https://mirrorpulse.github.io/" aria-label="Back to MirrorPulse home"', [StringComparison]::Ordinal)
     $brand = $page.IndexOf('<a class="navbar-brand"', [StringComparison]::Ordinal)
     if ($back -lt 0 -or $brand -le $back) {
         throw 'The MirrorPulse home link must precede the brand on the home, guide and API pages.'
@@ -67,6 +67,9 @@ if ($contributionPages | Where-Object { $_.Text -like '*artifacts/docs/workspace
 $themeCss = Get-Content -LiteralPath (Join-Path $resolvedRoot 'public\main.css') -Raw
 if ($themeCss -notlike '*--cf-radius-xl*') {
     throw 'Documentation custom theme marker --cf-radius-xl is missing.'
+}
+if ($themeCss -notlike '*.mp-home-link:focus-visible*') {
+    throw 'The MirrorPulse home link keyboard focus style is missing.'
 }
 $navigationScript = Get-Content -LiteralPath (Join-Path $resolvedRoot 'public\main.js') -Raw
 if ($navigationScript -notlike '*cf-github-link*' -or

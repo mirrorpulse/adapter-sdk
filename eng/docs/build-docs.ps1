@@ -118,7 +118,7 @@ try {
 
         # Keep the return link beside the site brand in the shared navbar.
         $brandTag = '<a class="navbar-brand"'
-        $homeLink = '<a class="cf-github-link nav-link" href="https://mirrorpulse.github.io/" aria-label="MirrorPulse home" title="MirrorPulse home"><span aria-hidden="true">←</span></a>'
+        $homeLink = '<a class="mp-home-link" href="https://mirrorpulse.github.io/" aria-label="Back to MirrorPulse home" title="Back to MirrorPulse home"><span aria-hidden="true">MirrorPulse</span></a>'
         if ($rewritten.Contains($brandTag, [StringComparison]::Ordinal)) {
             $rewritten = $rewritten.Replace($brandTag, $homeLink + [Environment]::NewLine + '          ' + $brandTag)
         }
